@@ -1,0 +1,307 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum Plan {
+  FREE
+  PRO
+  AGENCY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  PAST_DUE
+  TRIALING
+}
+
+enum ContentType {
+  LONG_FORM
+  SHORT_FORM
+  CAROUSEL
+  POST
+  SCRIPT
+}
+
+enum ContentStatus {
+  IDEA
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+}
+
+enum Platform {
+  YOUTUBE
+  INSTAGRAM
+  LINKEDIN
+  TIKTOK
+}
+
+enum VariantType {
+  HOOK
+  CAPTION
+  POST
+  HASHTAGS
+}
+
+enum DealStatus {
+  LEAD
+  CONTACTED
+  NEGOTIATION
+  WON
+  LOST
+}
+
+enum ActivityType {
+  NOTE
+  FOLLOWUP
+  EMAIL
+  CALL
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  name          String?
+  password      String?
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts         Account[]
+  sessions         Session[]
+  workspaceMembers WorkspaceMember[]
+  aiRequestLogs    AIRequestLog[]
+  dealActivities   DealActivity[]
+
+  @@index([email])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  type      String   @default("creator")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members       WorkspaceMember[]
+  contentItems  ContentItem[]
+  sponsors      Sponsor[]
+  deals         Deal[]
+  subscription  Subscription?
+  aiRequestLogs AIRequestLog[]
+
+  @@index([createdAt])
+}
+
+model WorkspaceMember {
+  id          String   @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        Role     @default(MEMBER)
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@index([workspaceId])
+}
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  workspaceId          String             @unique
+  plan                 Plan               @default(FREE)
+  status               SubscriptionStatus @default(ACTIVE)
+  stripeCustomerId     String?            @unique
+  stripeSubscriptionId String?            @unique
+  stripePriceId        String?
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean            @default(false)
+  aiCallsUsed          Int                @default(0)
+  aiCallsLimit         Int                @default(50)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([stripeCustomerId])
+  @@index([stripeSubscriptionId])
+}
+
+model ContentItem {
+  id          String        @id @default(cuid())
+  workspaceId String
+  title       String
+  description String?       @db.Text
+  type        ContentType
+  status      ContentStatus @default(IDEA)
+  platforms   Platform[]
+  scheduledAt DateTime?
+  publishedAt DateTime?
+  dueDate     DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  variants  ContentVariant[]
+  deals     Deal[]
+
+  @@index([workspaceId])
+  @@index([status])
+  @@index([scheduledAt])
+}
+
+model ContentVariant {
+  id            String      @id @default(cuid())
+  contentItemId String
+  platform      Platform
+  variantType   VariantType
+  text          String      @db.Text
+  createdAt     DateTime    @default(now())
+
+  contentItem ContentItem @relation(fields: [contentItemId], references: [id], onDelete: Cascade)
+
+  @@index([contentItemId])
+}
+
+model Sponsor {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  email       String?
+  website     String?
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  deals     Deal[]
+
+  @@index([workspaceId])
+}
+
+model Deal {
+  id                String     @id @default(cuid())
+  workspaceId       String
+  sponsorId         String
+  name              String
+  status            DealStatus @default(LEAD)
+  value             Float?
+  currency          String     @default("USD")
+  expectedCloseDate DateTime?
+  notes             String?    @db.Text
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  workspace      Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sponsor        Sponsor          @relation(fields: [sponsorId], references: [id], onDelete: Cascade)
+  activities     DealActivity[]
+  followups      Followup[]
+  contentItems   ContentItem[]
+
+  @@index([workspaceId])
+  @@index([sponsorId])
+  @@index([status])
+}
+
+model DealActivity {
+  id        String       @id @default(cuid())
+  dealId    String
+  type      ActivityType
+  content   String       @db.Text
+  createdBy String
+  createdAt DateTime     @default(now())
+
+  deal Deal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [createdBy], references: [id])
+
+  @@index([dealId])
+  @@index([createdBy])
+}
+
+model Followup {
+  id            String    @id @default(cuid())
+  dealId        String
+  dueAt         DateTime
+  completedAt   DateTime?
+  generatedText String?   @db.Text
+  createdAt     DateTime  @default(now())
+
+  deal Deal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@index([dealId])
+  @@index([dueAt])
+}
+
+model AIRequestLog {
+  id           String   @id @default(cuid())
+  userId       String
+  workspaceId  String
+  model        String
+  tokensUsed   Int?
+  costEstimate Float?
+  success      Boolean
+  errorMessage String?  @db.Text
+  requestType  String
+  createdAt    DateTime @default(now())
+
+  user      User      @relation(fields: [userId], references: [id])
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([workspaceId])
+  @@index([createdAt])
+}
